@@ -12,5 +12,10 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",
+  "apps": [
+    {
+      "script": "index.js"
+    }
+  ]
   "license": "ISC"
 }
