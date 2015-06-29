@@ -22,8 +22,8 @@ var conf  = pmx.initModule({
     theme            : ['#22B8EB', '#134A6A', 'white', 'white'],
 
     el : {
-      probes  : true,
-      actions : true
+      probes  : false,
+      actions : false
     },
 
     block : {
