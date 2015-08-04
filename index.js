@@ -6,6 +6,7 @@ var docker = new Docker({socketPath: '/var/run/docker.sock'});
 
 var pmx   = require('pmx');
 var async = require('async');
+var MemoryStream = require('memorystream');
 
 var conf  = pmx.initModule({
 
@@ -44,32 +45,89 @@ var probe = pmx.probe();
 
 var gl_containers;
 
+var previousCpu, previousSystem;
+
+function calculateCPUPercent(statItem, previousCpu, previousSystem) {
+  var cpuDelta = statItem.cpu_stats.cpu_usage.total_usage - previousCpu;
+  var systemDelta = statItem.cpu_stats.system_cpu_usage - previousSystem;
+
+  var cpuPercent = 0.0;
+  if (systemDelta > 0.0 && cpuDelta > 0.0) {
+    cpuPercent = (cpuDelta / systemDelta) * statItem.cpu_stats.cpu_usage.percpu_usage.length * 100.0;
+  }
+  return cpuPercent;
+}
+
+function calcCPU(stats) {
+  var percent = calculateCPUPercent(stats, previousCpu, previousSystem);
+  previousCpu = stats.cpu_stats.cpu_usage.total_usage;
+  previousSystem = stats.cpu_stats.system_cpu_usage;
+  return percent;
+}
+
+var pump = require('pump');
+var split = require('split2');
+var through2 = require('through2');
+
 function listContainers() {
   docker.listContainers(function(err, containers) {
-    gl_containers = containers;
 
-    // Do not work (Docker side..)
-    // containers.forEach(function(container, index) {
-    //   docker.getContainer(container.Id).stats(function(err, stream) {
-    //     console.log(arguments);
-    //   });
-    // });
+    async.each(containers, function(container, next) {
+      docker.getContainer(container.Id).stats(function(err, stream) {
+        var output = '';
+
+        //return false;
+        // pump(stream, split(JSON.parse), through2.obj(function(stats, enc, cb) {
+        //   var percent = calculateCPUPercent(stats, previousCpu, previousSystem);
+
+        //   this.push({
+        //     v: 0,
+        //     stats: stats
+        //   });
+
+        //   container.cpu  = Math.floor(percent * 100) / 100;
+        //   previousCpu    = stats.cpu_stats.cpu_usage.total_usage;
+        //   previousSystem = stats.cpu_stats.system_cpu_usage;
+        //   cb();
+        // }), function(err) {
+        //   console.log('done');
+        // });
+        stream.on('data', function(data) {
+          container.cpu = calcCPU(JSON.parse(data.toString()));
+          console.log(stream);
+          next();
+        });
+
+      });
+    }, function(err) {
+      console.log(containers);
+      gl_containers = containers;
+    });
   });
 }
 
 setInterval(listContainers, 2000);
 listContainers();
 
+
 probe.transpose('containers', function() { return gl_containers; });
+
+/**
+ * Metrics
+ */
+
+
 
 /**
  * Action section
  */
 
 // Restart a container Id
-pmx.action('restart', function(opts, reply) {
+pmx.scopedAction('restart', function(opts, res) {
+  res.send('Restarting container...');
   docker.getContainer(opts.Id).restart(function(err, data) {
-    return reply({success:true});
+    if (err) return res.error(err);
+    res.end('Container ' + opts.Image + ' restarted');
   });
 });
 
