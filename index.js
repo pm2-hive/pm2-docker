@@ -1,14 +1,9 @@
-
-
-
+var pmx    = require('pmx');
+var async  = require('async');
 var Docker = require('dockerode');
 var docker = new Docker({socketPath: '/var/run/docker.sock'});
 
-var pmx   = require('pmx');
-var async = require('async');
-var MemoryStream = require('memorystream');
-
-var conf  = pmx.initModule({
+var conf   = pmx.initModule({
 
   pid              : pmx.resolvePidPaths(['/var/run/docker.pid']),
 
@@ -38,14 +33,16 @@ var conf  = pmx.initModule({
   }
 });
 
+
 /**
  * Data section
  */
 var probe = pmx.probe();
 
-var gl_containers;
+var gl_containers = [];
 
-var previousCpu, previousSystem;
+var previousCpu = 0;
+var previousSystem = 0;
 
 function calculateCPUPercent(statItem, previousCpu, previousSystem) {
   var cpuDelta = statItem.cpu_stats.cpu_usage.total_usage - previousCpu;
@@ -62,61 +59,41 @@ function calcCPU(stats) {
   var percent = calculateCPUPercent(stats, previousCpu, previousSystem);
   previousCpu = stats.cpu_stats.cpu_usage.total_usage;
   previousSystem = stats.cpu_stats.system_cpu_usage;
-  return percent;
+  return percent.toFixed(2) + '%';
 }
 
-var pump = require('pump');
-var split = require('split2');
-var through2 = require('through2');
+function calcMemory(stats) {
+  return (stats.memory_stats.usage / (1024*1024)).toFixed(2) + 'MB/'
+	  + (stats.memory_stats.limit / (1024*1024)).toFixed(2) + 'MB';
+}
 
 function listContainers() {
   docker.listContainers(function(err, containers) {
-
-    async.each(containers, function(container, next) {
-      docker.getContainer(container.Id).stats(function(err, stream) {
-        var output = '';
-
-        //return false;
-        // pump(stream, split(JSON.parse), through2.obj(function(stats, enc, cb) {
-        //   var percent = calculateCPUPercent(stats, previousCpu, previousSystem);
-
-        //   this.push({
-        //     v: 0,
-        //     stats: stats
-        //   });
-
-        //   container.cpu  = Math.floor(percent * 100) / 100;
-        //   previousCpu    = stats.cpu_stats.cpu_usage.total_usage;
-        //   previousSystem = stats.cpu_stats.system_cpu_usage;
-        //   cb();
-        // }), function(err) {
-        //   console.log('done');
-        // });
-        stream.on('data', function(data) {
-          container.cpu = calcCPU(JSON.parse(data.toString()));
-          console.log(stream);
-          next();
-        });
-
-      });
-    }, function(err) {
-      console.log(containers);
-      gl_containers = containers;
+	  if (err) return;
+	  async.each(containers, function(container, next) {
+	    docker.getContainer(container.Id).stats(function(err, stream) {
+		    if (err) next (err);
+		    stream.once('data', function(data) {
+		      container.Cpu = calcCPU(JSON.parse(data.toString()));
+		      container.Memory = calcMemory(JSON.parse(data.toString()));
+		      next();
+		    });
+	    });
+	  }, function(err) {
+      if (err) return;
+	    gl_containers = containers;
     });
   });
+  console.log(gl_containers);
+  setTimeout(listContainers, 950);
 }
-
-setInterval(listContainers, 2000);
 listContainers();
-
-
-probe.transpose('containers', function() { return gl_containers; });
 
 /**
  * Metrics
  */
 
-
+probe.transpose('containers', function() { return gl_containers; });
 
 /**
  * Action section

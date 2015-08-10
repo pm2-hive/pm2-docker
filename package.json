@@ -6,10 +6,7 @@
   "dependencies" : {
     "dockerode" : "*",
     "pmx" : "*",
-    "async" : "*",
-    "pump" : "*",
-    "split2" : "*",
-    "through2" : "*"
+    "async" : "*"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
