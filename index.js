@@ -43,6 +43,9 @@ var gl_containers = [];
 
 var previousCpu = 0;
 var previousSystem = 0;
+var previousUpload = 0;
+var previousDownload = 0;
+
 
 function calculateCPUPercent(statItem, previousCpu, previousSystem) {
   var cpuDelta = statItem.cpu_stats.cpu_usage.total_usage - previousCpu;
@@ -67,6 +70,20 @@ function calcMemory(stats) {
 	  + (stats.memory_stats.limit / (1024*1024)).toFixed(2) + 'MB';
 }
 
+function calcNetworkDown(stats) {
+  var current = stats.network.rx_bytes - previousDownload;
+  previousDownload = stats.network.rx_bytes;
+
+  return (current / (1024*1024)).toFixed(3) + 'MB/s';
+}
+
+function calcNetworkUp(stats) {
+  var current = stats.network.tx_bytes - previousUpload;
+  previousUpload = stats.network.tx_bytes;
+
+  return (current / (1024*1024)).toFixed(3) + 'MB/s';
+}
+
 function listContainers() {
   docker.listContainers(function(err, containers) {
 	  if (err) return;
@@ -74,8 +91,13 @@ function listContainers() {
 	    docker.getContainer(container.Id).stats(function(err, stream) {
 		    if (err) next (err);
 		    stream.once('data', function(data) {
-		      container.Cpu = calcCPU(JSON.parse(data.toString()));
-		      container.Memory = calcMemory(JSON.parse(data.toString()));
+          //        console.log(require('util').inspect(JSON.parse(data.toString()).network, true, null, false));
+
+          data = JSON.parse(data.toString());
+		      container.Cpu = calcCPU(data);
+		      container.Memory = calcMemory(data);
+          container.NetworkDownstream = calcNetworkDown(data);
+          container.NetworkUpstream = calcNetworkUp(data);
 		      next();
 		    });
 	    });
@@ -85,7 +107,7 @@ function listContainers() {
     });
   });
   console.log(gl_containers);
-  setTimeout(listContainers, 950);
+  setTimeout(listContainers, 1000);
 }
 listContainers();
 
