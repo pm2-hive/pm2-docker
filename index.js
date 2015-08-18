@@ -3,6 +3,7 @@ var async  = require('async');
 var Docker = require('dockerode');
 var docker = new Docker({socketPath: '/var/run/docker.sock'});
 
+// Init module
 var conf   = pmx.initModule({
 
   pid              : pmx.resolvePidPaths(['/var/run/docker.pid']),
@@ -34,19 +35,17 @@ var conf   = pmx.initModule({
 });
 
 
-/**
- * Data section
- */
-var probe = pmx.probe();
-
-var gl_containers = [];
-
-var previousCpu = 0;
-var previousSystem = 0;
-var previousUpload = 0;
+// Globals
+var WORKER_INTERVAL  = 1000;
+var probe            = pmx.probe();
+var previousCpu      = 0;
+var previousSystem   = 0;
+var previousUpload   = 0;
 var previousDownload = 0;
+var gl_containers    = [];
+var gl_streams       = [];
 
-
+// Metrics formating
 function calculateCPUPercent(statItem, previousCpu, previousSystem) {
   var cpuDelta = statItem.cpu_stats.cpu_usage.total_usage - previousCpu;
   var systemDelta = statItem.cpu_stats.system_cpu_usage - previousSystem;
@@ -84,44 +83,92 @@ function calcNetworkUp(stats) {
   return (current / (1024*1024)).toFixed(3) + 'MB/s';
 }
 
-function listContainers() {
-  docker.listContainers(function(err, containers) {
-	  if (err) return;
-	  async.each(containers, function(container, next) {
-	    docker.getContainer(container.Id).stats(function(err, stream) {
-		    if (err) next (err);
-		    stream.once('data', function(data) {
-          //        console.log(require('util').inspect(JSON.parse(data.toString()).network, true, null, false));
+// Utilities
+function containerExists(container) {
+  var ret = false;
 
-          data = JSON.parse(data.toString());
-		      container.Cpu = calcCPU(data);
-		      container.Memory = calcMemory(data);
-          container.NetworkDownstream = calcNetworkDown(data);
-          container.NetworkUpstream = calcNetworkUp(data);
-		      next();
-		    });
-	    });
-	  }, function(err) {
-      if (err) return;
-	    gl_containers = containers;
+  gl_containers.some(function(elem) {
+    if (elem.Id === container.Id) {
+      ret = true;
+      return true;
+    }
+    return false;
+  });
+
+  return ret;
+}
+
+function addContainer(container) {
+  docker.getContainer(container.Id).wait(function() {
+    removeContainer(container);
+    console.log('Container "' + container.Names[0] + '" exited.');
+  });
+
+	docker.getContainer(container.Id).stats(function(err, stream) {
+		if (err) return console.error(err.stack || err);
+
+    stream.on('data', function (data) {
+      data = JSON.parse(data.toString());
+		  container.Cpu = calcCPU(data);
+		  container.Memory = calcMemory(data);
+      container.NetworkDownstream = calcNetworkDown(data);
+      container.NetworkUpstream = calcNetworkUp(data);
+      //console.log(container);
+		});
+
+    gl_containers.push(container);
+    gl_streams.push(stream);
+    console.log('Container "' + container.Names[0] + '" started.');
+	});
+}
+
+function removeContainer(container) {
+  var index = -1;
+
+  gl_containers.some(function(elem, i) {
+    if (elem.Id === container.Id) {
+      index = i;
+      return true;
+    }
+    return false;
+  });
+
+  if (index !== -1) {
+    gl_containers.splice(index, 1);
+    gl_streams[index].removeAllListeners('data');
+    gl_streams[index] = null;
+    gl_streams.splice(index, 1);
+  }
+}
+
+// Worker
+function listContainers() {
+  // global.gc();
+  // console.log((process.memoryUsage().rss / (1024*1024)).toFixed(2) + 'MB');
+
+  docker.listContainers(function(err, containers) {
+	  if (err) {
+      console.error(err.stack || err);
+      setTimeout(listContainers, WORKER_INTERVAL);
+      return;
+    }
+
+	  async.each(containers, function(container, next) {
+      if (containerExists(container) === false) {
+        addContainer(container);
+      }
+      next();
+	  }, function() {
+      setTimeout(listContainers, WORKER_INTERVAL);
     });
   });
-  console.log(gl_containers);
-  setTimeout(listContainers, 1000);
 }
 listContainers();
 
-/**
- * Metrics
- */
-
+// Metrics
 probe.transpose('containers', function() { return gl_containers; });
 
-/**
- * Action section
- */
-
-// Restart a container Id
+// Remote actions
 pmx.scopedAction('restart', function(opts, res) {
   res.send('Restarting container...');
   docker.getContainer(opts.Id).restart(function(err, data) {
@@ -133,7 +180,6 @@ pmx.scopedAction('restart', function(opts, res) {
 pmx.action('restart all', function(reply) {
   async.forEach(gl_containers, function(container, next) {
     docker.getContainer(container.Id).restart(function(err, data) {
-      console.log(arguments);
       return next();
     });
   }, function() {
