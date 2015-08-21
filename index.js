@@ -38,10 +38,6 @@ var conf   = pmx.initModule({
 // Globals
 var WORKER_INTERVAL  = 1000;
 var probe            = pmx.probe();
-var previousCpu      = 0;
-var previousSystem   = 0;
-var previousUpload   = 0;
-var previousDownload = 0;
 var gl_containers    = [];
 var gl_streams       = [];
 
@@ -57,10 +53,10 @@ function calculateCPUPercent(statItem, previousCpu, previousSystem) {
   return cpuPercent;
 }
 
-function calcCPU(stats) {
-  var percent = calculateCPUPercent(stats, previousCpu, previousSystem);
-  previousCpu = stats.cpu_stats.cpu_usage.total_usage;
-  previousSystem = stats.cpu_stats.system_cpu_usage;
+function calcCPU(stats, data) {
+  var percent = calculateCPUPercent(stats, data.previousCpu, data.previousSystem);
+  data.previousCpu = stats.cpu_stats.cpu_usage.total_usage;
+  data.previousSystem = stats.cpu_stats.system_cpu_usage;
   return percent.toFixed(2) + '%';
 }
 
@@ -69,16 +65,16 @@ function calcMemory(stats) {
 	  + (stats.memory_stats.limit / (1024*1024)).toFixed(2) + 'MB';
 }
 
-function calcNetworkDown(stats) {
-  var current = stats.network.rx_bytes - previousDownload;
-  previousDownload = stats.network.rx_bytes;
+function calcNetworkDown(stats, data) {
+  var current = stats.network.rx_bytes - data.previousDownload;
+  data.previousDownload = stats.network.rx_bytes;
 
   return (current / (1024*1024)).toFixed(3) + 'MB/s';
 }
 
-function calcNetworkUp(stats) {
-  var current = stats.network.tx_bytes - previousUpload;
-  previousUpload = stats.network.tx_bytes;
+function calcNetworkUp(stats, data) {
+  var current = stats.network.tx_bytes - data.previousUpload;
+  data.previousUpload = stats.network.tx_bytes;
 
   return (current / (1024*1024)).toFixed(3) + 'MB/s';
 }
@@ -104,15 +100,22 @@ function addContainer(container) {
     console.log('Container "' + container.Names[0] + '" exited.');
   });
 
+  container.private = {
+    previousCpu      : 0,
+    previousSystem   : 0,
+    previousUpload   : 0,
+    previousDownload : 0
+  };
+
 	docker.getContainer(container.Id).stats(function(err, stream) {
 		if (err) return console.error(err.stack || err);
 
     stream.on('data', function (data) {
       data = JSON.parse(data.toString());
-		  container.Cpu = calcCPU(data);
+		  container.Cpu = calcCPU(data, container.private);
 		  container.Memory = calcMemory(data);
-      container.NetworkDownstream = calcNetworkDown(data);
-      container.NetworkUpstream = calcNetworkUp(data);
+      container.NetworkDownstream = calcNetworkDown(data, container.private);
+      container.NetworkUpstream = calcNetworkUp(data, container.private);
       //console.log(container);
 		});
 
@@ -166,7 +169,18 @@ function listContainers() {
 listContainers();
 
 // Metrics
-probe.transpose('containers', function() { return gl_containers; });
+probe.transpose('containers', function() {
+  var ret = JSON.parse(JSON.stringify(gl_containers));
+
+  ret.forEach(function(elem) {
+    if (elem.private)
+      delete elem.private;
+  });
+
+  // console.log(require('util').inspect(ret, true, null, false));
+
+  return ret;
+});
 
 // Remote actions
 pmx.scopedAction('restart', function(opts, res) {

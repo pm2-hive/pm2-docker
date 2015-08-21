@@ -1,6 +1,6 @@
 {
   "name": "pm2-docker",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Monitor your docker instances with PM2",
   "main": "index.js",
   "dependencies" : {
