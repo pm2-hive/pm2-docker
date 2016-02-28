@@ -2,19 +2,27 @@
   "name": "pm2-docker",
   "version": "1.0.1",
   "description": "Monitor your docker instances with PM2",
-  "main": "index.js",
+  "main": "app.js",
   "dependencies" : {
     "dockerode" : "*",
     "pmx" : "*",
     "async" : "*"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node app"
   },
   "author": "",
+  "config": {
+    "socketPath": "/var/run/docker.sock",
+    "host": "",
+    "port": "",
+    "protocol": "",
+    "version": "",
+    "refresh_rate": 5000
+  },
   "apps": [
     {
-      "script": "index.js"
+      "script": "app.js"
     }
   ],
   "license": "ISC"
