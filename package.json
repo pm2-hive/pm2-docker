@@ -1,12 +1,12 @@
 {
   "name": "pm2-docker",
-  "version": "1.0.1",
+  "version": "2.1.0",
   "description": "Monitor your docker instances with PM2",
   "main": "app.js",
-  "dependencies" : {
-    "dockerode" : "*",
-    "pmx" : "*",
-    "async" : "*"
+  "dependencies": {
+    "dockerode": "*",
+    "pmx": "*",
+    "async": "*"
   },
   "scripts": {
     "start": "node app"

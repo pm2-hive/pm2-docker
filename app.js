@@ -25,6 +25,8 @@ pmx.initModule({
     block: {
       actions: true,
       issues: true,
+      cpu: false,
+      mem: false,
       meta: false,
       main_probes: [
         'Docker Version',
